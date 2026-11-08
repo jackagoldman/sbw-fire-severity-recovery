@@ -1,0 +1,693 @@
+# Propensity score analysis 
+
+
+# load required packages
+library(tidyverse)
+library(ggplot2)
+library(sf)
+library(viridis)
+library(cowplot)
+library(MatchIt)
+library(sensemakr)
+library(MuMIn)
+library(car)
+source("./utils/best_model_functions.R")
+source("./utils/utils.R")
+
+
+
+# Load your data 
+source("./utils/load_data.R")  # Replace with actual script that loads hist_gt90_1
+
+# Part 1: SEVERITY ==============================
+
+## Propensity score matching for full severity Data ---------------------------
+
+# Full matching on a probit PS
+m.out2 <- matchit(history ~  host_pct +isi_90 + dc_90+ dmc_90 + ffmc_90 + bui_90 + fwi_90 + mean_tri + fire_area,
+                  data = history_gt90, 
+                  method = "nearest",
+                  distance = "glm",
+                  link = "probit",
+                  m.order = "random",
+                  ### set a maximum distance for the matches
+                  caliper = 0.25)
+
+
+
+m.data <- match_data(m.out2)
+
+
+m.data %>% 
+  group_by(history) %>% 
+  summarise("Number of Fires" = n()) %>% 
+  mutate(history = case_when(history ==1 ~ "Defoliated",
+                             history ==0 ~"Non-Defoliated"))
+
+
+#save matched data
+write.csv(m.data, "./data/on_sev_match_data.csv")
+
+
+# Convert the data frame to an sf object
+m.data.sf <- st_as_sf(m.data, coords = c("x", "y"), crs = 4326)
+
+
+## Assess balance for severity ======================
+v <- data.frame(old = c("host_pct", "isi_90", "dc_90", 
+"dmc_90", "ffmc_90", "bui_90", "fwi_90", "mean_tri", "fire_area"),new = c("Host Species Percentage", "Intial Spread Index", "Drought Code", 
+        "Duff Moisture Code", "Fine Fuel Moisture Code", "Build Up Index", "Fire Weather Index", "Mean Terrain Ruggedness Index", "fire_area"))
+
+cobalt::love.plot(m.out2, stats = c("mean.diffs"), 
+                  threshold = c(m = .25), 
+                  binary = "std",
+                  abs = TRUE,
+                  var.order = "unadjusted",
+                  var.names = v,
+                  limits = c(0, 1),
+                  grid = FALSE,
+                  wrap = 20,
+                  sample.names = c("Unmatched", "Matched"),
+                  position = "top",
+                  shapes = c("circle", "triangle"),
+                  colors = c("#FF8C00A0", "#8B0000A0"),
+                   guide = guide_legend(
+                   title = NULL,
+                   direction = "horizontal",
+                   title.position = "top",
+                   label.position = "bottom",
+                   label.hjust = 0.5,
+                   label.vjust = 1.5,
+                   keywidth = 1.5,
+                   keyheight = 3,
+                   default.unit = "cm",
+                   override.aes = list(size = 5),
+                   ncol = 2
+                 )) + 
+                 theme_bw() + 
+                 theme(legend.position = c(.75, .3),
+                       plot.title = element_blank(), 
+                       legend.box.background = element_rect(fill = "white", color = "black"), 
+                       legend.box.margin = margin(5, 5, 5, 5),
+                       legend.text = element_text(size = 14),
+                       legend.title = element_text(size = 16),
+                       axis.title.x = element_text(size = 16),
+                       axis.title.y = element_text(size = 16),
+                       axis.text.x = element_text(size = 14),
+                       axis.text.y = element_text(size = 14),
+                       panel.border = element_rect(color = "black", fill = NA, size = 1.5)
+                 )
+
+# save
+ggsave(
+  filename = "/Users/jgoldman/Work/PhD/sbw-fire-psm-project/sbw-wildfire-impact-recovery/plots/balance/fig_sev_balance.png",
+  plot = last_plot(),
+  width = 10, height = 5 * ceiling(length(v)/2), # adjust height based on number of plots
+  dpi = 300
+)
+
+host_plot <- cobalt::bal.plot(m.out2, 
+                              var.name = "host_pct", 
+                              which = "both",
+                              colors = c("#FF8C00A0", "#8B0000A0"),
+                              sample.names = c("Unmatched", "Matched")) +scale_fill_manual(
+                                values = c("0" = "#FF8C00A0", "1" = "#8B0000A0"),
+                                labels = c("0" = "Non-Defoliated", "1" = "Defoliated"))+xlab("Host Species Percentage") + ggtitle(NULL) +theme_bw() + theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+
+isi_plot <- cobalt::bal.plot(m.out2, 
+                             var.name = "isi_90", 
+                             which = "both", 
+                             colors = c("#FF8C00A0", "#8B0000A0"),
+                             sample.names = c("Unmatched", "Matched"))+ scale_fill_manual(
+                               values = c("0" = "#FF8C00A0", "1" = "#8B0000A0"),
+                               labels = c("0" = "Non-Defoliated", "1" = "Defoliated"))+xlab("Initial Spread Index") + ggtitle(NULL) +theme_bw()+ theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+
+dc_plot <- cobalt::bal.plot(m.out2, 
+                            var.name = "dc_90", 
+                            which = "both", 
+                            colors = c("#FF8C00A0", "#8B0000A0"),
+                            sample.names = c("Unmatched", "Matched"))+ scale_fill_manual(
+                              values = c("0" = "#FF8C00A0", "1" = "#8B0000A0"),
+                              labels = c("0" = "Non-Defoliated", "1" = "Defoliated"))+xlab("Drought Code") + ggtitle(NULL) +theme_bw()+ theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+
+dmc_plot <- cobalt::bal.plot(m.out2, 
+                             var.name = "dmc_90", 
+                             which = "both", 
+                             colors = c("#FF8C00A0", "#8B0000A0"),
+                             sample.names = c("Unmatched", "Matched"))+ scale_fill_manual(
+                               values = c("0" = "#FF8C00A0", "1" = "#8B0000A0"),
+                               labels = c("0" = "Non-Defoliated", "1" = "Defoliated"))+xlab("Duff Moisture Code") + ggtitle(NULL) +theme_bw()+ theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+
+ffmc_plot <- cobalt::bal.plot(m.out2, 
+                              var.name = "ffmc_90", 
+                              which = "both", 
+                              colors = c("#FF8C00A0", "#8B0000A0"),
+                              sample.names = c("Unmatched", "Matched"))+ scale_fill_manual(
+                                values = c("0" = "#FF8C00A0", "1" = "#8B0000A0"),
+                                labels = c("0" = "Non-Defoliated", "1" = "Defoliated"))+xlab("Fine Fuel Moisture Code") + ggtitle(NULL) +theme_bw()+ theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+
+bui_plot <- cobalt::bal.plot(m.out2, 
+                             var.name = "bui_90", 
+                             which = "both", 
+                             colors = c("#FF8C00A0", "#8B0000A0"),
+                             sample.names = c("Unmatched", "Matched"))+ scale_fill_manual(
+                               values = c("0" = "#FF8C00A0", "1" = "#8B0000A0"),
+                               labels = c("0" = "Non-Defoliated", "1" = "Defoliated"))+xlab("Build Up Index") + ggtitle(NULL) +theme_bw()+ theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+
+fwi_plot <- cobalt::bal.plot(m.out2, 
+                             var.name = "fwi_90", 
+                             which = "both", 
+                             colors = c("#FF8C00A0", "#8B0000A0"),
+                             sample.names = c("Unmatched", "Matched"))+ scale_fill_manual(
+                               values = c("0" = "#FF8C00A0", "1" = "#8B0000A0"),
+                               labels = c("0" = "Non-Defoliated", "1" = "Defoliated"))+xlab("Fire Weather Index") + ggtitle(NULL) +theme_bw()+ theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+
+tri_plot <- cobalt::bal.plot(m.out2, 
+                             var.name = "mean_tri", 
+                             which = "both", 
+                             colors = c("#FF8C00A0", "#8B0000A0"),
+                             sample.names = c("Unmatched", "Matched"))+ scale_fill_manual(
+                               values = c("0" = "#FF8C00A0", "1" = "#8B0000A0"),
+                               labels = c("0" = "Non-Defoliated", "1" = "Defoliated"))+xlab("Fire Weather Index") + ggtitle(NULL) +theme_bw()+ theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+
+# Arrange the plots in a 2-column layout
+sev_combined <- plot_grid(host_plot, isi_plot, dc_plot, dmc_plot, ffmc_plot, bui_plot,fwi_plot, ncol = 1, align = 'v', rel_heights = c(1, 1, 1, 1, 1, 1))
+
+# save sev_combined
+ggsave(
+  filename = "/home/goldma34/sbw-wildfire-impact-recovery/plots/balance/fig_sev_all_balance.png",
+  plot = sev_combined,
+  width = 14, height = 5 * ceiling(length(sev_combined)/2), # adjust height based on number of plots
+  dpi = 300
+)
+
+
+## Severity average treatment effect estimate =====================
+
+# Define the model formula =====================
+formula.sev <- rbr_w_offset ~history + host_pct  + Cumulative_Years_Defol:Time_Since_Defol + isi_90 + 
+  dc_90 + dmc_90 + ffmc_90 + bui_90+ fwi_90 + mean_tri + fire_area
+
+m.data <- mutate(m.data, fire_area = (total_pixels * 900) / 10000)
+
+# scale
+# standardize the data
+cols_to_scale <- c("host_pct",  "isi_90", "dc_90", 
+                   "dmc_90", "ffmc_90", "bui_90", "fwi_90", "mean_tri", "fire_area")
+
+#
+m.data.2 <- m.data
+
+# Scale the selected columns in the @data slot
+m.data.2[cols_to_scale] <- scale(m.data.2[cols_to_scale])
+
+# run model
+sev_mod.1 <-lm(formula.sev, weights = m.data.2$weights, data = m.data.2 )
+
+#vif
+vif(sev_mod.1)
+
+# get vif table
+vif_table <- data.frame(
+  feature = names(vif(sev_mod.1)), # remove intercept 
+  VIF = as.numeric(vif(sev_mod.1))
+)
+
+write.csv(vif_table, "results/all_fires/severity_model_vif.csv", row.names = FALSE)
+
+#update model 
+sev.model.2 <- update(sev_mod.1, . ~ . - dmc_90 - bui_90)
+
+#check model summary
+print(sum_sev_2 <- summary(sev.model.2))
+
+# save model to .rds
+saveRDS(sev.model.2, "results/all_fires/models/severity_modelfit_final.rds")
+
+#save model
+# Convert summary statistics to a data frame
+sev_model_stats <- function(model_summary) {
+  # Extract coefficient table
+  coef_table <- as.data.frame(model_summary$coefficients)
+  
+  # Add term names as a column
+  coef_table$term <- rownames(coef_table)
+  
+  # Rename columns for clarity
+  names(coef_table) <- c("estimate", "std_error", "t_value", "p_value", "term")
+  
+  # Reorder columns
+  coef_table <- coef_table[, c("term", "estimate", "std_error", "t_value", "p_value")]
+  
+  # Sort: intercept first, then by significance (p-value)
+  intercept_row <- coef_table[coef_table$term == "(Intercept)", ]
+  other_rows <- coef_table[coef_table$term != "(Intercept)", ]
+  other_rows <- other_rows[order(other_rows$p_value), ]
+  
+  # Combine rows back together
+  coef_table <- rbind(intercept_row, other_rows)
+  
+  # Add significance stars
+  coef_table$significance <- ""
+  coef_table$significance[coef_table$p_value < 0.05] <- "*"
+  coef_table$significance[coef_table$p_value < 0.01] <- "**"
+  coef_table$significance[coef_table$p_value < 0.001] <- "***"
+  
+    # Format numeric columns with scientific notation
+  coef_table$estimate <- formatC(coef_table$estimate, format = "e", digits = 4)
+  coef_table$std_error <- formatC(coef_table$std_error, format = "e", digits = 4)
+  coef_table$t_value <- formatC(coef_table$t_value, format = "e", digits = 4)
+  coef_table$p_value <- formatC(coef_table$p_value, format = "e", digits = 4)
+  
+  # Return the data frame
+  return(coef_table)
+}
+
+# Create the data frame from severity model summary
+sev_stats <- sev_model_stats(sum_sev_2)
+
+# Print the results
+print(sev_stats)
+
+# Save to CSV file
+write.csv(sev_stats,  "results/all_fires/severity_model_statistics.csv", 
+          row.names = FALSE)
+
+# get r-squared
+
+
+# avg_comparisons for treatment effect
+fit_att_sev <- as.data.frame(marginaleffects::avg_comparisons(sev.model.2,
+                                                          variables = "history",
+                                                          vcov = ~subclass,
+                                                          newdata = subset(history == 1))) %>%  mutate(Fires= "all")
+
+print(fit_att_sev)
+
+# Create a severity treatment effect data frame with better formatted column names
+sev_treatment_effects <- fit_att_sev %>%
+  rename(
+    Treatment_Effect = estimate,
+    SE = std.error,
+    CI_Lower = conf.low,
+    CI_Upper = conf.high,
+    P_Value = p.value
+  ) %>%
+  mutate(
+    Model = "Severity",
+    .before = 1
+  ) %>%
+  select(Model, Treatment_Effect, SE, CI_Lower, CI_Upper, P_Value, Fires)
+
+# save rds
+saveRDS(sev_treatment_effects, "results/all_fires/models/treatment_effects_sev_final.rds")
+
+
+
+# Save this for later when we'll combine with recovery effects
+
+# effects plot
+p.sev_all <- marginaleffects::plot_predictions(fit_sev, condition = c("history"), draw = FALSE) 
+
+p.sev_all<- p.sev_all %>% 
+  mutate(Fires = "All")  %>% 
+  mutate(history = case_when(history == 1 ~ "Defoliated",
+                             history == 0 ~ "Non-Defoliated"))
+
+# Get max y value for positioning
+sev_y_max <- max(p.sev_all$conf.high) * 1.1
+
+# Create base plot
+plot.p.sev_all <- ggplot(p.sev_all, aes(x = history, y = estimate, color = history)) +
+  geom_point(size = 4) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) +
+  labs(y = "Burn Severity", x = "Defoliation History", color = "History") +
+  scale_x_discrete(labels = c("Defoliated", "Non-Defoliated")) +
+  scale_color_manual(values = c("Defoliated" = "#8B0000A0", "Non-Defoliated" = "#FF8C00A0")) +
+  theme_bw()+
+  theme(legend.position = "none")
+
+# Add significance annotation
+plot.p.sev_all <- add_significance_annotation(plot.p.sev_all, fit_att_sev, y_position = sev_y_max)
+
+# save rds
+saveRDS(plot.p.sev_all, "/home/goldma34/sbw-wildfire-impact-recovery/plots/treat_effects/fig_sev_treat_effect_all.rds")
+
+# Save plot
+ggsave(plot = plot.p.sev_all, filename = "/home/goldma34/sbw-wildfire-impact-recovery/plots/treat_effects/fig_severity_treat_effect_all.png", width = 6, height = 4, dpi = 300)
+
+## Sensitivity analysis for severity #####
+
+# benchmark covariates 
+# which varibles to remove
+covariates <- c("host_pct", "isi_90",  "ffmc_90",  "fwi_90", "dc_90", "mean_tri", "fire_area")
+
+# run sensitivity analysis
+sev.sensitivity <- sensemakr(model = sev.model.2, 
+                                treatment = "history",
+                                benchmark_covariates = covariates,
+                                alpha = 0.05, 
+                                reduce = TRUE)
+
+#outcome
+summary(sev.sensitivity)
+
+
+#The results suggest that the 'history' variable has a moderate coefficient estimate with a relatively 
+#low standard error, leading to a high t-value and indicating that the effect is statistically significant. 
+#The sensitivity statistics imply that the observed effect is reasonably robust and would 
+#require relatively strong unobserved confounders to nullify or make the effect statistically insignificant.
+
+#plot bias contour of point estimate
+plot(sev.sensitivity)
+
+# Convert sensitivity plot to ggplot and save
+ggplot_sev_sensitivity <- plot(sev.sensitivity, type = "contour") + theme_bw()
+ggsave(
+  filename = "/home/goldma34/sbw-wildfire-impact-recovery/plots/sensitivity/fig_sev_sensitivity.png",
+  plot = ggplot_sev_sensitivity,
+  width = 8, height = 6, dpi = 300
+)
+
+# plot extreme scenario
+plot(sev.sensitivity, type = "extreme")
+
+#####################################
+# Part 2: RECOVERY ==============================
+######################################
+
+## Propensity score matching for full recovery Data --------------------------
+
+# Full matching on a probit PS
+m.out.rec <- matchit(history ~  host_pct + rbr_w_offset + mean_temperature + sum_precipitation_mm + mean_tri + fire_area,
+                     data = history_gt90,
+                     method = "nearest",
+                     distance = "glm",
+                     link = "probit",
+                     m.order = "random",
+                     ### set a maximum distance for the matches
+                     caliper = 0.25)
+
+
+
+m.data.rec <- match_data(m.out.rec)
+
+
+m.data.rec %>% 
+  group_by(history) %>% 
+  summarise("Number of Fires" = n()) %>% 
+  mutate(history = case_when(history ==1 ~ "Defoliated",
+                             history ==0 ~"Non-Defoliated"))
+
+
+write.csv(m.data.rec, "/home/goldma34/sbw-wildfire-impact-recovery/data/on_rec_match_data.csv")
+
+# Convert the data frame to an sf object
+m.data.rec.sf <- st_as_sf(m.data.rec, coords = c("x", "y"), crs = 4326)
+
+
+## Assess balance for recovery ==============
+v.r <- data.frame(old = c("host_pct", "rbr_w_offset", "mean_temperature", "sum_precipitation_mm", "mean_tri", "fire_area"),
+                new = c("Host Species Percentage", "burn severity", "post-fire mean temperature", 
+                        "post-fire total precipitation (mm)", "mean terrain ruggedness index (m)", "fire_area"))
+
+cobalt::love.plot(m.out.rec, stats = c("mean.diffs"), 
+                  threshold = c(m = .25), 
+                  binary = "std",
+                  abs = TRUE,
+                  var.order = "unadjusted",
+                  var.names = v.r,
+                  limits = c(0, 1),
+                  grid = FALSE,
+                  wrap = 20,
+                  sample.names = c("Unmatched", "Matched"),
+                  position = "top",
+                  shapes = c("circle", "triangle"),
+                  colors = c("#FF8C00A0", "#8B0000A0"), 
+                   guide = guide_legend(
+                   title = NULL,
+                   direction = "horizontal",
+                   title.position = "top",
+                   label.position = "bottom",
+                   label.hjust = 0.5,
+                   label.vjust = 1.5,
+                   keywidth = 1.5,
+                   keyheight = 1.5,
+                   default.unit = "cm",
+                   override.aes = list(size = 5),
+                   ncol = 2
+                 )) + 
+                 theme_bw() + 
+                 theme(legend.position = c(.75, .3),
+                       plot.title = element_blank(), 
+                       legend.box.background = element_rect(fill = "white", color = "black"), 
+                       legend.box.margin = margin(5, 5, 5, 5),
+                       legend.key.size = unit(1.5, "cm"),
+                       legend.text = element_text(size = 14),
+                       legend.title = element_text(size = 16),
+                       axis.title.x = element_text(size = 16),
+                       axis.title.y = element_text(size = 16),
+                       axis.text.x = element_text(size = 14),
+                       axis.text.y = element_text(size = 14),
+                       panel.border = element_rect(color = "black", fill = NA, size = 1.5)
+                 )
+
+# save
+ggsave(
+  filename = "/Users/jgoldman/Work/PhD/sbw-fire-psm-project/sbw-wildfire-impact-recovery/plots/balance/fig_rec_balance.png",
+  plot = last_plot(),
+  width = 10, height = 5 * ceiling(length(v.r)/2), # adjust height based on number of plots
+  dpi = 300
+)                  
+
+
+host_plot <- cobalt::bal.plot(m.out.rec, 
+                              var.name = "host_pct", 
+                              which = "both",
+                              colors = c("#FF8C00A0", "#8B0000A0"),
+                              sample.names = c("Unmatched", "Matched")) +scale_fill_manual(
+                                values = c("0" = "#FF8C00A0", "1" = "#8B0000A0"),
+                                labels = c("0" = "Non-Defoliated", "1" = "Defoliated"))+xlab("Host Species Percentage") + ggtitle(NULL) +theme_bw() + theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+
+rbr_plot <- cobalt::bal.plot(m.out.rec, 
+                             var.name = "rbr_w_offset", 
+                             which = "both", 
+                             colors = c("#FF8C00A0", "#8B0000A0"),
+                             sample.names = c("Unmatched", "Matched"))+ scale_fill_manual(
+                               values = c("0" = "#FF8C00A0", "1" = "#8B0000A0"),
+                               labels = c("0" = "Non-Defoliated", "1" = "Defoliated"))+xlab("Burn Severity (RBR)") + ggtitle(NULL) +theme_bw()+ theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+
+temp_plot <- cobalt::bal.plot(m.out.rec, 
+                            var.name = "mean_temperature", 
+                            which = "both", 
+                            colors = c("#FF8C00A0", "#8B0000A0"),
+                            sample.names = c("Unmatched", "Matched"))+ scale_fill_manual(
+                              values = c("0" = "#FF8C00A0", "1" = "#8B0000A0"),
+                              labels = c("0" = "Non-Defoliated", "1" = "Defoliated"))+xlab("Mean Temperature (°C)") + ggtitle(NULL) +theme_bw()+ theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+
+ppt_plot <- cobalt::bal.plot(m.out.rec, 
+                             var.name = "sum_precipitation_mm", 
+                             which = "both", 
+                             colors = c("#FF8C00A0", "#8B0000A0"),
+                             sample.names = c("Unmatched", "Matched"))+ scale_fill_manual(
+                               values = c("0" = "#FF8C00A0", "1" = "#8B0000A0"),
+                               labels = c("0" = "Non-Defoliated", "1" = "Defoliated"))+xlab("Total Precipitation (mm)") + ggtitle(NULL) +theme_bw()+ theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+
+tri_plot <- cobalt::bal.plot(m.out.rec, 
+                             var.name = "mean_tri", 
+                             which = "both", 
+                             colors = c("#FF8C00A0", "#8B0000A0"),
+                             sample.names = c("Unmatched", "Matched"))+ scale_fill_manual(
+                               values = c("0" = "#FF8C00A0", "1" = "#8B0000A0"),
+                               labels = c("0" = "Non-Defoliated", "1" = "Defoliated"))+xlab("Mean Terrain Ruggedness Index (m)") + ggtitle(NULL) +theme_bw()+ theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+
+
+
+# Arrange the plots in a 2-column layout
+rec_combined <- plot_grid(host_plot, rbr_plot, temp_plot, ppt_plot, tri_plot, ncol = 1, align = 'v', rel_heights = c(1, 1, 1, 1, 1, 1))
+
+# save sev_combined
+ggsave(
+  filename = "/home/goldma34/sbw-wildfire-impact-recovery/plots/balance/fig_rec_all_balance.png",
+  plot = rec_combined,
+  width = 14, height = 5 * ceiling(length(rec_combined)/2), # adjust height based on number of plots
+  dpi = 300
+)
+
+
+## Recovery average treatment estimate ========
+
+formula.rec <-  recovery ~ rbr_w_offset + history + host_pct  + Cumulative_Years_Defol:Time_Since_Defol + mean_temperature + sum_precipitation_mm + mean_tri +fire_area
+
+m.data.rec <- mutate(m.data.rec, fire_area = (total_pixels * 900) / 10000)
+
+# scale
+# standardize the data
+cols_to_scale <- c("host_pct",  "rbr_w_offset", "mean_temperature", "sum_precipitation_mm", "mean_tri", "fire_area")
+
+#
+m.data.rec2 <- m.data.rec
+
+# Scale the selected columns in the @data slot
+m.data.rec2[cols_to_scale] <- scale(m.data.rec2[cols_to_scale])
+
+# run model
+rec_mod.1 <-lm(formula.rec, weights = m.data.rec2$weights, data = m.data.rec2 )
+
+#vif
+vif(rec_mod.1)
+
+#
+# get vif table
+vif_table <- data.frame(
+  feature = names(vif(rec_mod.1)), # remove intercept 
+  VIF = as.numeric(vif(rec_mod.1))
+)
+
+write.csv(vif_table, "results/all_fires/recovery_model_vif.csv", row.names = FALSE)
+
+
+#check model summary
+print(sum_rec <- summary(rec_mod.1))
+
+# Create the data frame from severity model summary
+rec_stats <- sev_model_stats(sum_rec)
+
+# Print the results
+print(rec_stats)
+#save to csf ile
+write.csv(rec_stats, "results/all_fires/recovery_model_statistics.csv", 
+          row.names = FALSE)
+# avg_comparisons for treatment effect
+fit_att_rec <- as.data.frame(marginaleffects::avg_comparisons(rec_mod.1,
+                                                          variables = "history",
+                                                          vcov = ~subclass,
+                                                          newdata = subset(history == 1))) %>%  mutate(Fires= "all")
+
+
+# summary
+fit_att_rec
+
+# Create a recovery treatment effect data frame with better formatted column names
+rec_treatment_effects <- fit_att_rec %>%
+  rename(
+    Treatment_Effect = estimate,
+    SE = std.error,
+    CI_Lower = conf.low,
+    CI_Upper = conf.high,
+    P_Value = p.value
+  ) %>%
+  mutate(
+    Model = "Recovery",
+    .before = 1
+  ) %>%
+  select(Model, Treatment_Effect, SE, CI_Lower, CI_Upper, P_Value, Fires)
+
+#save rds
+saveRDS(rec_treatment_effects, "results/all_fires/treatment_effects_rec_final.rds")
+
+t = readRDS(file.path(base_path, "results/all_fires/treatment_effects_rec_final.rds"))
+summary(t)
+
+t
+# Combine both treatment effects
+combined_effects <- bind_rows(sev_treatment_effects, rec_treatment_effects)
+
+# Export combined treatment effects to CSV
+write.csv(
+  combined_effects,
+  "results/all_fires/treatment_effects_all_fires_final.csv",
+  row.names = FALSE
+)
+
+# Print a message confirming export
+cat("Treatment effects exported to results/treatment_effects.csv\n")
+
+
+# effects plot
+p.rec_all <- marginaleffects::plot_predictions(fit_rec_baseline, condition = c("history"), draw = FALSE) 
+
+p.rec_all <- p.rec_all %>% 
+  mutate(Fires = "All")  %>% 
+  mutate(history = case_when(history == 1 ~ "Defoliated",
+                             history == 0 ~ "Non-Defoliated"))
+
+# Get max y value for positioning
+rec_y_max <- max(p.rec_all$conf.high) * 1.1
+
+# Create base plot
+plot.p.rec_all <- ggplot(p.rec_all, aes(x = history, y = estimate, color = history)) +
+  geom_point(size = 4) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) +
+  labs(y = "Recovery Magnitude (%)", x = "Defoliation History", color = "History") +
+  scale_x_discrete(labels = c("Defoliated", "Non-Defoliated")) +
+  scale_color_manual(values = c("Defoliated" = "#8B0000A0", "Non-Defoliated" = "#FF8C00A0")) +
+  theme_bw()+
+  theme(legend.position = "none")
+
+# Add significance annotation
+plot.p.rec_all <- add_significance_annotation(plot.p.rec_all, fit_att_rec, y_position = rec_y_max)
+
+#save rds
+saveRDS(plot.p.rec_all, "/home/goldma34/sbw-wildfire-impact-recovery/plots/treat_effects/fig_rec_treat_effect_all.rds")
+
+
+# Save plot
+ggsave(plot = plot.p.rec_all, filename = "/home/goldma34/sbw-wildfire-impact-recovery/plots/treat_effects/fig_rec_treat_effect_all.png", width = 6, height = 4, dpi = 300)
+
+
+##  sensitivity analysis for recovery  -----------
+
+# benchmark covariates
+covariates_rec <- c("host_pct", "rbr_w_offset", "mean_temperature", "sum_precipitation_mm", "mean_tri", "fire_area")
+
+# run sensitivity analysis
+rec.sensitivity <- sensemakr(model = rec_mod.1, 
+                             treatment = "history",
+                             #benchmark_covariates = covariates_rec,
+                             kd = 1:3,
+                             alpha = 0.05, 
+                             reduce = TRUE)
+
+
+
+#outcome
+summary(rec.sensitivity)
+
+#The results suggest that the 'history' variable has a moderate coefficient estimate with a relatively 
+#low standard error, leading to a high t-value and indicating that the effect is statistically significant. 
+#The sensitivity statistics imply that the observed effect is reasonably robust and would require relatively 
+#strong unobserved confounders to nullify or make the effect statistically insignificant.
+#Overall, these results indicate that 'history' has a significant and robust effect on the outcome.
+
+#plot bias contour of point estimate
+plot(rec.sensitivity)
+
+# Convert sensitivity plot to ggplot and save
+ggplot_rec_sensitivity <- plot(rec.sensitivity, type = "contour") + theme_bw()
+ggsave(
+  filename = "/home/goldma34/sbw-wildfire-impact-recovery/plots/sensitivity/fig_rec_sensitivity.png",
+  plot = ggplot_rec_sensitivity,
+  width = 8, height = 6, dpi = 300
+)
+# plot extreme scenario
+plot(rec.sensitivity, type = "extreme")
+
+
+# Export R-square values to csv
+# Create dataframe with R-squared values for both models
+r_squared_table <- data.frame(
+  Model = c("Severity", "Recovery"),
+  R2_marginal = c(r.squaredGLMM(fit_sev)[1, "R2m"], r.squaredGLMM(fit_rec_baseline)[1, "R2m"]),
+  R2_conditional = c(r.squaredGLMM(fit_sev)[1, "R2c"], r.squaredGLMM(fit_rec_baseline)[1, "R2c"])
+)
+
+# Export R-squared table to CSV
+write.csv(
+  r_squared_table,
+  "/home/goldma34/sbw-wildfire-impact-recovery/results/all_fires/r_squared_values_all_fires.csv",
+  row.names = FALSE
+)
+
+# Print a message confirming export
+cat("R-squared values exported to results/r_squared_values.csv\n")
