@@ -1,0 +1,4 @@
+"Panel","Dataset","Non-defoliated","Defoliated","Total"
+"A","All fires",551,256,807
+"B","Matched: severity",158,158,316
+"C","Matched: recovery",145,145,290
